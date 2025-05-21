@@ -5,6 +5,7 @@
   <title>Local Authority Benchmarking Tool</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 </head>
 <body>
   <div class="container">
@@ -39,44 +40,51 @@
 
     async function loadAuthoritiesFromFinanceCSV() {
       try {
-        const response = await fetch('/National-Finance-Data.csv');
-        if (!response.ok) throw new Error('Network response was not ok');
-        const text = await response.text();
-        const rows = text.trim().split('\n').slice(1);
-        financeData = rows.map(row => row.split(','));
+        const response = await fetch('National-Finance-Data.csv');
+        if (!response.ok) throw new Error('Failed to fetch CSV file');
+        const csvText = await response.text();
 
-        console.log('Finance data loaded:', financeData.length, 'rows');
-        console.log('First row:', financeData[0]);
+        const parsed = Papa.parse(csvText, {
+          header: true,
+          skipEmptyLines: true,
+        });
 
-        const colH = 7; // Local Authority in column H (index 7)
+        financeData = parsed.data;
+        console.log('Parsed CSV data:', financeData);
+
         const authorities = new Set();
-
         financeData.forEach(row => {
-          const authority = row[colH]?.trim();
-          if (authority) authorities.add(authority);
+          if (row["Local Authority"]) {
+            authorities.add(row["Local Authority"].trim());
+          }
         });
 
         const dropdown = document.getElementById('dropdown');
         dropdown.innerHTML = '<option value="">Select a Local Authority</option>';
-        Array.from(authorities).sort().forEach(auth => {
-          const option = document.createElement('option');
-          option.value = auth;
-          option.textContent = auth;
-          dropdown.appendChild(option);
-        });
+        Array.from(authorities)
+          .sort()
+          .forEach(auth => {
+            const option = document.createElement('option');
+            option.value = auth;
+            option.textContent = auth;
+            dropdown.appendChild(option);
+          });
 
         dropdown.addEventListener('change', handleAuthorityChange);
       } catch (error) {
-        console.error('Error loading National-Finance-Data.csv:', error);
-        document.getElementById('csvPreview').textContent = 'Failed to load data.';
+        console.error('Error loading CSV:', error);
+        document.getElementById('csvPreview').textContent =
+          'Failed to load data.';
       }
     }
 
     function resetInterface() {
       const metricDropdown = document.getElementById('metricDropdown');
-      metricDropdown.innerHTML = '<option value="">Please select a Local Authority first</option>';
+      metricDropdown.innerHTML =
+        '<option value="">Please select a Local Authority first</option>';
       metricDropdown.disabled = true;
-      document.getElementById('csvPreview').textContent = 'Please select a local authority and key metric.';
+      document.getElementById('csvPreview').textContent =
+        'Please select a local authority and key metric.';
       if (chartInstance) chartInstance.destroy();
     }
 
@@ -91,13 +99,13 @@
         return;
       }
 
-      const colH = 7;  // Local Authority
-      const colL = 11; // Metric
-
       const metrics = new Set();
       financeData.forEach(row => {
-        if (row[colH]?.trim() === selectedAuthority && row[colL]?.trim()) {
-          metrics.add(row[colL].trim());
+        if (
+          row["Local Authority"]?.trim() === selectedAuthority &&
+          row["Metric"]?.trim()
+        ) {
+          metrics.add(row["Metric"].trim());
         }
       });
 
@@ -111,6 +119,7 @@
       });
 
       metricDropdown.disabled = false;
+
       metricDropdown.addEventListener('change', () => {
         const metric = metricDropdown.value;
         if (metric) processFinanceData(selectedAuthority, metric);
@@ -118,23 +127,22 @@
     }
 
     function processFinanceData(localAuthority, selectedMetric) {
-      const colYear = 0;  // Year
-      const colH = 7;     // Local Authority
-      const colL = 11;    // Metric
-      const colQ = 16;    // Value
-
+      // Use header names based on CSV, adjust as needed
       const currencyFormat = new Intl.NumberFormat('en-GB', {
         style: 'currency',
-        currency: 'GBP'
+        currency: 'GBP',
       });
 
       const dataMap = {};
 
-      financeData.forEach(cols => {
-        const year = cols[colYear]?.trim();
-        const authority = cols[colH]?.trim();
-        const metric = cols[colL]?.trim();
-        const value = parseFloat(cols[colQ]?.replace(/[^0-9.-]+/g, '') || '0');
+      financeData.forEach(row => {
+        const year = row["Year"]?.trim();
+        const authority = row["Local Authority"]?.trim();
+        const metric = row["Metric"]?.trim();
+        const valueRaw = row["Value"] || row["Value (£)"] || row["Value (£m)"] || "";
+        // Adjust the value column header above as per your CSV
+
+        const value = parseFloat(valueRaw.toString().replace(/[^0-9.-]+/g, ""));
 
         if (
           authority === localAuthority &&
@@ -147,21 +155,23 @@
       });
 
       const years = Object.keys(dataMap).sort();
+
       if (years.length === 0) {
-        document.getElementById('csvPreview').textContent = 'No data found for selection.';
+        document.getElementById('csvPreview').textContent =
+          'No data found for selection.';
         if (chartInstance) chartInstance.destroy();
         return;
       }
 
-      // CSV Preview table
       let csvHtml = '<table><tr><th>Year</th><th>Value</th></tr>';
       years.forEach(year => {
-        csvHtml += `<tr><td>${year}</td><td>${currencyFormat.format(dataMap[year])}</td></tr>`;
+        csvHtml += `<tr><td>${year}</td><td>${currencyFormat.format(
+          dataMap[year]
+        )}</td></tr>`;
       });
       csvHtml += '</table>';
       document.getElementById('csvPreview').innerHTML = csvHtml;
 
-      // Chart update
       const values = years.map(year => dataMap[year]);
       const ctx = document.getElementById('chart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
@@ -169,32 +179,34 @@
         type: 'bar',
         data: {
           labels: years,
-          datasets: [{
-            label: `${selectedMetric} (£)`,
-            data: values,
-            backgroundColor: 'rgba(52, 152, 219, 0.6)',
-            borderColor: 'rgba(41, 128, 185, 1)',
-            borderWidth: 1
-          }]
+          datasets: [
+            {
+              label: `${selectedMetric} (£)`,
+              data: values,
+              backgroundColor: 'rgba(52, 152, 219, 0.6)',
+              borderColor: 'rgba(41, 128, 185, 1)',
+              borderWidth: 1,
+            },
+          ],
         },
         options: {
           responsive: true,
           scales: {
             y: {
               ticks: {
-                callback: value => currencyFormat.format(value)
+                callback: value => currencyFormat.format(value),
               },
-              beginAtZero: true
-            }
+              beginAtZero: true,
+            },
           },
           plugins: {
             tooltip: {
               callbacks: {
-                label: context => currencyFormat.format(context.parsed.y)
-              }
-            }
-          }
-        }
+                label: context => currencyFormat.format(context.parsed.y),
+              },
+            },
+          },
+        },
       });
     }
 
