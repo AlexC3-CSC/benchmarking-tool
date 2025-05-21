@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Local Authority Benchmarking Tool</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
@@ -39,12 +39,16 @@
 
     async function loadAuthoritiesFromFinanceCSV() {
       try {
-        const response = await fetch('National Finance Data.csv');
+        const response = await fetch('National-Finance-Data.csv');
+        if (!response.ok) throw new Error('Network response was not ok');
         const text = await response.text();
         const rows = text.trim().split('\n').slice(1);
         financeData = rows.map(row => row.split(','));
 
-        const colH = 7; // Local Authority in column H
+        console.log('Finance data loaded:', financeData.length, 'rows');
+        console.log('First row:', financeData[0]);
+
+        const colH = 7; // Local Authority in column H (index 7)
         const authorities = new Set();
 
         financeData.forEach(row => {
@@ -63,13 +67,15 @@
 
         dropdown.addEventListener('change', handleAuthorityChange);
       } catch (error) {
-        console.error('Error loading National Finance Data.csv:', error);
+        console.error('Error loading National-Finance-Data.csv:', error);
+        document.getElementById('csvPreview').textContent = 'Failed to load data.';
       }
     }
 
     function resetInterface() {
-      document.getElementById('metricDropdown').innerHTML = '<option value="">Please select a Local Authority first</option>';
-      document.getElementById('metricDropdown').disabled = true;
+      const metricDropdown = document.getElementById('metricDropdown');
+      metricDropdown.innerHTML = '<option value="">Please select a Local Authority first</option>';
+      metricDropdown.disabled = true;
       document.getElementById('csvPreview').textContent = 'Please select a local authority and key metric.';
       if (chartInstance) chartInstance.destroy();
     }
@@ -85,8 +91,8 @@
         return;
       }
 
-      const colH = 7; // Local Authority in column H
-      const colL = 11; // Metric in column L
+      const colH = 7;  // Local Authority
+      const colL = 11; // Metric
 
       const metrics = new Set();
       financeData.forEach(row => {
@@ -112,10 +118,10 @@
     }
 
     function processFinanceData(localAuthority, selectedMetric) {
-      const colYear = 0;  // Year in column A
-      const colH = 7;     // Local Authority in column H
-      const colL = 11;    // Metric in column L
-      const colQ = 16;    // Value in column Q
+      const colYear = 0;  // Year
+      const colH = 7;     // Local Authority
+      const colL = 11;    // Metric
+      const colQ = 16;    // Value
 
       const currencyFormat = new Intl.NumberFormat('en-GB', {
         style: 'currency',
@@ -147,7 +153,7 @@
         return;
       }
 
-      // CSV Preview
+      // CSV Preview table
       let csvHtml = '<table><tr><th>Year</th><th>Value</th></tr>';
       years.forEach(year => {
         csvHtml += `<tr><td>${year}</td><td>${currencyFormat.format(dataMap[year])}</td></tr>`;
@@ -155,7 +161,7 @@
       csvHtml += '</table>';
       document.getElementById('csvPreview').innerHTML = csvHtml;
 
-      // Chart
+      // Chart update
       const values = years.map(year => dataMap[year]);
       const ctx = document.getElementById('chart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
