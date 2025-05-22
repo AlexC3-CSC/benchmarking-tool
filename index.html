@@ -6,112 +6,103 @@
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 2rem;
+    }
+    select, label {
+      display: block;
+      margin-top: 1rem;
+    }
+    table {
+      margin-top: 1rem;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 0.5rem;
+      border: 1px solid #ccc;
+    }
+    canvas {
+      max-width: 100%;
+      margin-top: 2rem;
+    }
+  </style>
 </head>
 <body>
-  <div class="container">
-    <h1>Local Authority Benchmarking Tool</h1>
+  <h1>Local Authority Benchmarking Tool</h1>
 
-    <label for="dropdown">Select Local Authority:</label>
-    <select id="dropdown">
-      <option value="">Loading...</option>
-    </select>
+  <label for="dropdown">Select Local Authority:</label>
+  <select id="dropdown">
+    <option value="">Loading...</option>
+  </select>
 
-    <label for="metricDropdown">Select Key Metric:</label>
-    <select id="metricDropdown" disabled>
-      <option value="">Please select a Local Authority first</option>
-    </select>
+  <label for="metricDropdown">Select Key Metric:</label>
+  <select id="metricDropdown" disabled>
+    <option value="">Please select a Local Authority first</option>
+  </select>
 
-    <section class="preview">
-      <h2>Table View</h2>
-      <div id="csvPreview" class="table-container">Please select a local authority and key metric.</div>
-    </section>
-
-    <section class="chart">
-      <h2>Graph</h2>
-      <div id="chartContainer">
-        <canvas id="chart"></canvas>
-      </div>
-    </section>
-  </div>
+  <div id="csvPreview">Please select a local authority and key metric.</div>
+  <canvas id="chart"></canvas>
 
   <script>
-    let chartInstance = null;
     let financeData = [];
+    let chartInstance = null;
 
-    async function loadAuthoritiesFromFinanceCSV() {
+    async function loadCSV() {
       try {
         const response = await fetch('National-Finance-Data.csv');
-        if (!response.ok) throw new Error('Failed to fetch CSV file');
-        const csvText = await response.text();
+        if (!response.ok) throw new Error('Could not fetch CSV');
+        const csv = await response.text();
 
-        const parsed = Papa.parse(csvText, {
-          header: true,
-          skipEmptyLines: true,
-        });
-
+        const parsed = Papa.parse(csv, { header: true, skipEmptyLines: true });
         financeData = parsed.data;
-        console.log('Parsed CSV data:', financeData);
-
-        const authorities = new Set();
-        financeData.forEach(row => {
-          if (row["Local Authority"]) {
-            authorities.add(row["Local Authority"].trim());
-          }
-        });
 
         const dropdown = document.getElementById('dropdown');
+        const authorities = new Set();
+
+        financeData.forEach(row => {
+          if (row["Local Authority"]) authorities.add(row["Local Authority"].trim());
+        });
+
         dropdown.innerHTML = '<option value="">Select a Local Authority</option>';
-        Array.from(authorities)
-          .sort()
-          .forEach(auth => {
-            const option = document.createElement('option');
-            option.value = auth;
-            option.textContent = auth;
-            dropdown.appendChild(option);
-          });
+        Array.from(authorities).sort().forEach(name => {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          dropdown.appendChild(option);
+        });
 
         dropdown.addEventListener('change', handleAuthorityChange);
-      } catch (error) {
-        console.error('Error loading CSV:', error);
-        document.getElementById('csvPreview').textContent =
-          'Failed to load data.';
+      } catch (err) {
+        console.error(err);
+        document.getElementById('dropdown').innerHTML = '<option value="">Failed to load options</option>';
+        document.getElementById('csvPreview').textContent = 'Error loading CSV file.';
       }
-    }
-
-    function resetInterface() {
-      const metricDropdown = document.getElementById('metricDropdown');
-      metricDropdown.innerHTML =
-        '<option value="">Please select a Local Authority first</option>';
-      metricDropdown.disabled = true;
-      document.getElementById('csvPreview').textContent =
-        'Please select a local authority and key metric.';
-      if (chartInstance) chartInstance.destroy();
     }
 
     function handleAuthorityChange() {
-      const selectedAuthority = document.getElementById('dropdown').value;
+      const selected = document.getElementById('dropdown').value;
       const metricDropdown = document.getElementById('metricDropdown');
-      metricDropdown.innerHTML = '<option value="">Loading metrics...</option>';
+      metricDropdown.innerHTML = '';
       metricDropdown.disabled = true;
 
-      if (!selectedAuthority) {
-        resetInterface();
-        return;
-      }
+      if (!selected) return;
 
       const metrics = new Set();
       financeData.forEach(row => {
-        if (
-          row["Local Authority"]?.trim() === selectedAuthority &&
-          row["Metric"]?.trim()
-        ) {
+        if (row["Local Authority"]?.trim() === selected && row["Metric"]) {
           metrics.add(row["Metric"].trim());
         }
       });
 
-      const sortedMetrics = Array.from(metrics).sort();
+      if (metrics.size === 0) {
+        metricDropdown.innerHTML = '<option value="">No metrics available</option>';
+        return;
+      }
+
       metricDropdown.innerHTML = '<option value="">Select a Key Metric</option>';
-      sortedMetrics.forEach(metric => {
+      Array.from(metrics).sort().forEach(metric => {
         const option = document.createElement('option');
         option.value = metric;
         option.textContent = metric;
@@ -120,97 +111,67 @@
 
       metricDropdown.disabled = false;
 
-      metricDropdown.addEventListener('change', () => {
-        const metric = metricDropdown.value;
-        if (metric) processFinanceData(selectedAuthority, metric);
-      });
+      metricDropdown.onchange = () => {
+        if (metricDropdown.value) {
+          processFinanceData(selected, metricDropdown.value);
+        }
+      };
     }
 
-    function processFinanceData(localAuthority, selectedMetric) {
-      // Use header names based on CSV, adjust as needed
-      const currencyFormat = new Intl.NumberFormat('en-GB', {
-        style: 'currency',
-        currency: 'GBP',
-      });
+    function processFinanceData(authority, metric) {
+      const rows = financeData.filter(row =>
+        row["Local Authority"]?.trim() === authority &&
+        row["Metric"]?.trim() === metric
+      );
 
       const dataMap = {};
-
-      financeData.forEach(row => {
+      rows.forEach(row => {
         const year = row["Year"]?.trim();
-        const authority = row["Local Authority"]?.trim();
-        const metric = row["Metric"]?.trim();
-        const valueRaw = row["Value"] || row["Value (£)"] || row["Value (£m)"] || "";
-        // Adjust the value column header above as per your CSV
-
-        const value = parseFloat(valueRaw.toString().replace(/[^0-9.-]+/g, ""));
-
-        if (
-          authority === localAuthority &&
-          metric === selectedMetric &&
-          year &&
-          !isNaN(value)
-        ) {
-          dataMap[year] = value;
-        }
+        const rawValue = row["Value"] || row["Value (£)"] || row["Value (£m)"];
+        const value = parseFloat((rawValue || "").toString().replace(/[^0-9.-]+/g, ""));
+        if (year && !isNaN(value)) dataMap[year] = value;
       });
 
       const years = Object.keys(dataMap).sort();
-
-      if (years.length === 0) {
-        document.getElementById('csvPreview').textContent =
-          'No data found for selection.';
-        if (chartInstance) chartInstance.destroy();
-        return;
-      }
-
-      let csvHtml = '<table><tr><th>Year</th><th>Value</th></tr>';
-      years.forEach(year => {
-        csvHtml += `<tr><td>${year}</td><td>${currencyFormat.format(
-          dataMap[year]
-        )}</td></tr>`;
-      });
-      csvHtml += '</table>';
-      document.getElementById('csvPreview').innerHTML = csvHtml;
-
       const values = years.map(year => dataMap[year]);
+
+      // Table
+      let table = '<table><tr><th>Year</th><th>Value (£)</th></tr>';
+      years.forEach(y => {
+        table += `<tr><td>${y}</td><td>£${dataMap[y].toLocaleString()}</td></tr>`;
+      });
+      table += '</table>';
+      document.getElementById('csvPreview').innerHTML = table;
+
+      // Chart
       const ctx = document.getElementById('chart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
       chartInstance = new Chart(ctx, {
         type: 'bar',
         data: {
           labels: years,
-          datasets: [
-            {
-              label: `${selectedMetric} (£)`,
-              data: values,
-              backgroundColor: 'rgba(52, 152, 219, 0.6)',
-              borderColor: 'rgba(41, 128, 185, 1)',
-              borderWidth: 1,
-            },
-          ],
+          datasets: [{
+            label: `${metric} (£)`,
+            data: values,
+            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          }]
         },
         options: {
-          responsive: true,
           scales: {
             y: {
-              ticks: {
-                callback: value => currencyFormat.format(value),
-              },
               beginAtZero: true,
-            },
-          },
-          plugins: {
-            tooltip: {
-              callbacks: {
-                label: context => currencyFormat.format(context.parsed.y),
-              },
-            },
-          },
-        },
+              ticks: {
+                callback: val => `£${val.toLocaleString()}`
+              }
+            }
+          }
+        }
       });
     }
 
-    loadAuthoritiesFromFinanceCSV();
+    loadCSV();
   </script>
 </body>
 </html>
