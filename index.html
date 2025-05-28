@@ -1,29 +1,34 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Local Authority Benchmarking Tool</title>
-  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
 </head>
 <body>
   <div class="container">
     <h1>Local Authority Benchmarking Tool</h1>
 
-    <label for="dropdown">Select Local Authority:</label>
-    <select id="dropdown">
-      <option value="">Loading...</option>
+    <label for="datasetSelector">Select Dataset:</label>
+    <select id="datasetSelector">
+      <option value="socialCare">Children’s Social Care</option>
+      <option value="education">Education</option>
     </select>
 
-    <label for="descDropdown">Select Description of Expenditure:</label>
-    <select id="descDropdown" disabled>
+    <label for="dropdown">Select Local Authority:</label>
+    <select id="dropdown">
+      <option value="">Please select a dataset</option>
+    </select>
+
+    <label for="metricDropdown">Select Key Metric:</label>
+    <select id="metricDropdown" disabled>
       <option value="">Please select a Local Authority first</option>
     </select>
 
     <section class="preview">
       <h2>Table View</h2>
-      <div id="csvPreview" class="table-container">Please select a local authority and description of expenditure.</div>
+      <div id="csvPreview" class="table-container">Please select a local authority and key metric.</div>
     </section>
 
     <section class="chart">
@@ -36,129 +41,115 @@
 
   <script>
     let chartInstance = null;
-    let financeData = [];
+    let dataStore = {
+      socialCare: [],
+      education: []
+    };
 
-    async function loadAuthoritiesFromFinanceCSV() {
-      try {
-        const response = await fetch('National-Finance-Data.csv');
-        if (!response.ok) throw new Error('Failed to fetch CSV file');
-        const csvText = await response.text();
+    async function loadCSV(dataset) {
+      const file = dataset === 'education' ? 'SEN Data.csv' : 'National Finance Data.csv';
+      const response = await fetch(file);
+      const text = await response.text();
+      return text.trim().split('\n').slice(1).map(row => row.split(','));
+    }
 
-        const parsed = Papa.parse(csvText, {
-          header: true,
-          skipEmptyLines: true,
-        });
+    async function loadData() {
+      dataStore.socialCare = await loadCSV('socialCare');
+      dataStore.education = await loadCSV('education');
+    }
 
-        financeData = parsed.data;
-        console.log('Parsed CSV data length:', financeData.length);
+    function populateAuthorities(dataset) {
+      const colH = 7; // Local Authority in column H
+      const authorities = new Set();
+      const data = dataStore[dataset];
 
-        const authorities = new Set();
-        financeData.forEach(row => {
-          if (row["la_name"] && row["la_name"].trim() !== "") {
-            authorities.add(row["la_name"].trim());
-          }
-        });
-        console.log("Authorities found:", Array.from(authorities));
+      data.forEach(row => {
+        const authority = row[colH]?.trim();
+        if (authority) authorities.add(authority);
+      });
 
-        const dropdown = document.getElementById('dropdown');
-        dropdown.innerHTML = '<option value="">Select a Local Authority</option>';
-        Array.from(authorities)
-          .sort()
-          .forEach(auth => {
-            const option = document.createElement('option');
-            option.value = auth;
-            option.textContent = auth;
-            dropdown.appendChild(option);
-          });
+      const dropdown = document.getElementById('dropdown');
+      dropdown.innerHTML = '<option value="">Select a Local Authority</option>';
+      Array.from(authorities).sort().forEach(auth => {
+        const option = document.createElement('option');
+        option.value = auth;
+        option.textContent = auth;
+        dropdown.appendChild(option);
+      });
 
-        dropdown.addEventListener('change', handleAuthorityChange);
-      } catch (error) {
-        console.error('Error loading CSV:', error);
-        document.getElementById('csvPreview').textContent = 'Failed to load data.';
-      }
+      dropdown.addEventListener('change', () => handleAuthorityChange(dataset));
+    }
+
+    function handleDatasetChange() {
+      resetInterface();
+      const dataset = document.getElementById('datasetSelector').value;
+      populateAuthorities(dataset);
     }
 
     function resetInterface() {
-      const descDropdown = document.getElementById('descDropdown');
-      descDropdown.innerHTML = '<option value="">Please select a Local Authority first</option>';
-      descDropdown.disabled = true;
-      document.getElementById('csvPreview').textContent = 'Please select a local authority and description of expenditure.';
+      document.getElementById('dropdown').innerHTML = '<option value="">Please select a dataset</option>';
+      document.getElementById('metricDropdown').innerHTML = '<option value="">Please select a Local Authority first</option>';
+      document.getElementById('metricDropdown').disabled = true;
+      document.getElementById('csvPreview').textContent = 'Please select a local authority and key metric.';
       if (chartInstance) chartInstance.destroy();
     }
 
-    function handleAuthorityChange() {
+    function handleAuthorityChange(dataset) {
       const selectedAuthority = document.getElementById('dropdown').value;
-      const descDropdown = document.getElementById('descDropdown');
-      descDropdown.innerHTML = '<option value="">Loading descriptions...</option>';
-      descDropdown.disabled = true;
+      const metricDropdown = document.getElementById('metricDropdown');
+      const colH = 7; // Local Authority
+      const colL = 11; // Metric
 
-      if (!selectedAuthority) {
-        resetInterface();
-        return;
-      }
-
-      // Find all unique description_of_expenditure for selected local authority
-      const descriptions = new Set();
-      financeData.forEach(row => {
-        if (
-          row["la_name"]?.trim() === selectedAuthority &&
-          row["description_of_expenditure"]?.trim()
-        ) {
-          descriptions.add(row["description_of_expenditure"].trim());
+      const metrics = new Set();
+      const data = dataStore[dataset];
+      data.forEach(row => {
+        if (row[colH]?.trim() === selectedAuthority && row[colL]?.trim()) {
+          metrics.add(row[colL].trim());
         }
       });
 
-      const sortedDescriptions = Array.from(descriptions).sort();
-      descDropdown.innerHTML = '<option value="">Select a Description of Expenditure</option>';
-      sortedDescriptions.forEach(desc => {
+      metricDropdown.innerHTML = '<option value="">Select a Key Metric</option>';
+      Array.from(metrics).sort().forEach(metric => {
         const option = document.createElement('option');
-        option.value = desc;
-        option.textContent = desc;
-        descDropdown.appendChild(option);
+        option.value = metric;
+        option.textContent = metric;
+        metricDropdown.appendChild(option);
       });
 
-      descDropdown.disabled = false;
+      metricDropdown.disabled = false;
+      metricDropdown.onchange = () => {
+        const selectedMetric = metricDropdown.value;
+        if (selectedMetric) {
+          processData(dataset, selectedAuthority, selectedMetric);
+        }
+      };
     }
 
-    // Only add one event listener for descDropdown outside handler to avoid duplicates
-    document.getElementById('descDropdown').addEventListener('change', () => {
-      const selectedAuthority = document.getElementById('dropdown').value;
-      const selectedDesc = document.getElementById('descDropdown').value;
-      if (selectedAuthority && selectedDesc) {
-        processFinanceData(selectedAuthority, selectedDesc);
-      }
-    });
+    function processData(dataset, localAuthority, selectedMetric) {
+      const colYear = 0;  // Year
+      const colH = 7;     // Local Authority
+      const colL = 11;    // Metric
+      const colQ = 18;    // Value
 
-    function processFinanceData(localAuthority, selectedDescription) {
-      const currencyFormat = new Intl.NumberFormat('en-GB', {
-        style: 'currency',
-        currency: 'GBP',
-      });
-
+      const data = dataStore[dataset];
       const dataMap = {};
-
-      financeData.forEach(row => {
-        const year = row["time_period"]?.trim();
-        const authority = row["la_name"]?.trim();
-        const description = row["description_of_expenditure"]?.trim();
-
-        // Try possible value columns
-        const valueRaw = row["total_expenditure"] || row["net_current_expenditure"] || row["net_revenue_expenditure"] || "";
-
-        const value = parseFloat(valueRaw.toString().replace(/[^0-9.-]+/g, ""));
-
-        if (
-          authority === localAuthority &&
-          description === selectedDescription &&
-          year &&
-          !isNaN(value)
-        ) {
+      data.forEach(cols => {
+        const year = cols[colYear]?.trim();
+        const authority = cols[colH]?.trim();
+        const metric = cols[colL]?.trim();
+        const value = parseFloat(cols[colQ]?.replace(/[^0-9.-]+/g, '') || '0');
+        if (authority === localAuthority && metric === selectedMetric && year && !isNaN(value)) {
           dataMap[year] = value;
         }
       });
 
       const years = Object.keys(dataMap).sort();
+      const currencyFormat = new Intl.NumberFormat('en-GB', {
+        style: 'currency',
+        currency: 'GBP'
+      });
 
+      // CSV Preview
       if (years.length === 0) {
         document.getElementById('csvPreview').textContent = 'No data found for selection.';
         if (chartInstance) chartInstance.destroy();
@@ -172,6 +163,7 @@
       csvHtml += '</table>';
       document.getElementById('csvPreview').innerHTML = csvHtml;
 
+      // Chart
       const values = years.map(year => dataMap[year]);
       const ctx = document.getElementById('chart').getContext('2d');
       if (chartInstance) chartInstance.destroy();
@@ -179,38 +171,37 @@
         type: 'bar',
         data: {
           labels: years,
-          datasets: [
-            {
-              label: `${selectedDescription} (£)`,
-              data: values,
-              backgroundColor: 'rgba(52, 152, 219, 0.6)',
-              borderColor: 'rgba(41, 128, 185, 1)',
-              borderWidth: 1,
-            },
-          ],
+          datasets: [{
+            label: `${selectedMetric} (£)`,
+            data: values,
+            backgroundColor: 'rgba(52, 152, 219, 0.6)',
+            borderColor: 'rgba(41, 128, 185, 1)',
+            borderWidth: 1
+          }]
         },
         options: {
           responsive: true,
           scales: {
             y: {
               ticks: {
-                callback: value => currencyFormat.format(value),
+                callback: value => currencyFormat.format(value)
               },
-              beginAtZero: true,
-            },
+              beginAtZero: true
+            }
           },
           plugins: {
             tooltip: {
               callbacks: {
-                label: context => currencyFormat.format(context.parsed.y),
-              },
-            },
-          },
-        },
+                label: context => currencyFormat.format(context.parsed.y)
+              }
+            }
+          }
+        }
       });
     }
 
-    loadAuthoritiesFromFinanceCSV();
+    document.getElementById('datasetSelector').addEventListener('change', handleDatasetChange);
+    loadData();
   </script>
 </body>
 </html>
